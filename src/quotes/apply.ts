@@ -2,7 +2,7 @@ import type { SimproClient } from "../simpro/client.ts";
 import { QuoteBusyError, withQuoteLock } from "../simpro/locks.ts";
 import { PlanRefused, refuseUneditable, type Expected, type PlanStep } from "./plan.ts";
 import { verifyPlan } from "./planToken.ts";
-import { linePath, normaliseLine, readQuote, round, type LineType, type QuoteView } from "./read.ts";
+import { linePath, normaliseLine, readQuote, readTotals, round, type LineType, type QuoteView } from "./read.ts";
 
 export type AuditLog = {
     /** Must succeed before anything is written. */
@@ -141,8 +141,7 @@ export async function applyQuotePlan(
         }
     }
 
-    const after = await readQuote(client, plan.quoteId).catch(() => undefined);
-    const totals = after?.totals;
+    const totals = await readTotals(client, plan.quoteId).catch(() => undefined);
     await audit.finish(auditId, { status, results, totals });
     return {
         status,

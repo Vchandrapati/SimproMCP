@@ -28,7 +28,8 @@ export function asBusy(error: unknown): QuoteBusyError | null {
  * - every POST, PATCH or DELETE drops the lock, so it must be retaken per write;
  * - staff are blocked while the API holds it, so it is held only for this call;
  * - releasing a lock that is already gone returns 422 "Must acquire the lock", which is normal.
- * A failed release is logged rather than thrown, so it can't make a completed write look failed.
+ * So the lock is only released when the write fails, since a successful write has already
+ * dropped it. A failed release is logged rather than thrown, so the write's own error is kept.
  */
 export async function withQuoteLock<T>(client: SimproClient, quoteId: number, write: () => Promise<T>): Promise<T> {
     const path = `quotes/${quoteId}/lock/`;
@@ -40,12 +41,11 @@ export async function withQuoteLock<T>(client: SimproClient, quoteId: number, wr
     try {
         return await write();
     } catch (error) {
-        throw asBusy(error) ?? error;
-    } finally {
         try {
             await client.delete(path);
-        } catch (error) {
-            if (!lockNotOurs(error)) console.error(`Could not release the lock on quote ${quoteId}; staff may be blocked`, error);
+        } catch (releaseError) {
+            if (!lockNotOurs(releaseError)) console.error(`Could not release the lock on quote ${quoteId}; staff may be blocked`, releaseError);
         }
+        throw asBusy(error) ?? error;
     }
 }

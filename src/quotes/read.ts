@@ -156,6 +156,27 @@ export function linePath(quoteId: number, sectionId: number, costCentreId: numbe
     return lineId === undefined ? base : `${base}${lineId}`;
 }
 
+function totalsFrom(raw: Raw): QuoteView["totals"] {
+    const t = raw.Totals ?? {};
+    return {
+        sellExTax: Number(raw.Total?.ExTax ?? 0),
+        sellIncTax: Number(raw.Total?.IncTax ?? 0),
+        materialsCost: Number(t.MaterialsCost?.Estimate ?? 0),
+        labourCost: Number(t.ResourcesCost?.Labor?.Estimate ?? 0),
+        overhead: Number(t.ResourcesCost?.Overhead?.Estimate ?? 0),
+        labourHours: Number(t.ResourcesCost?.LaborHours?.Estimate ?? 0),
+        grossProfit: Number(t.GrossProfitLoss?.Estimate ?? 0),
+        grossMarginPercent: Number(t.GrossMargin?.Estimate ?? 0),
+        nettProfit: Number(t.NettProfitLoss?.Estimate ?? 0),
+        nettMarginPercent: Number(t.NettMargin?.Estimate ?? 0),
+    };
+}
+
+/** The quote's totals only, from its header. One request, so it stays fast on large quotes. */
+export async function readTotals(client: SimproClient, quoteId: number): Promise<QuoteView["totals"]> {
+    return totalsFrom(await client.get<Raw>(`quotes/${quoteId}`));
+}
+
 /** Fields each line list must return. Confirmed against live Simpro to match the per-line detail. */
 const LINE_COLUMNS: Record<LineType, string> = {
     catalogs: "ID,Catalog,BasePrice,Markup,SellPrice,Total,DisplayOrder",
@@ -243,7 +264,6 @@ export async function readQuote(client: SimproClient, quoteId: number): Promise<
         sections.push({ sectionId: Number(rawSection.ID), name: rawSection.Name ?? "", costCentres });
     });
 
-    const t = raw.Totals ?? {};
     return {
         quoteId,
         name: raw.Name ?? "",
@@ -252,18 +272,7 @@ export async function readQuote(client: SimproClient, quoteId: number): Promise<
         status: raw.Status?.Name ?? null,
         isClosed: Boolean(raw.IsClosed),
         jobNo: raw.JobNo ?? null,
-        totals: {
-            sellExTax: Number(raw.Total?.ExTax ?? 0),
-            sellIncTax: Number(raw.Total?.IncTax ?? 0),
-            materialsCost: Number(t.MaterialsCost?.Estimate ?? 0),
-            labourCost: Number(t.ResourcesCost?.Labor?.Estimate ?? 0),
-            overhead: Number(t.ResourcesCost?.Overhead?.Estimate ?? 0),
-            labourHours: Number(t.ResourcesCost?.LaborHours?.Estimate ?? 0),
-            grossProfit: Number(t.GrossProfitLoss?.Estimate ?? 0),
-            grossMarginPercent: Number(t.GrossMargin?.Estimate ?? 0),
-            nettProfit: Number(t.NettProfitLoss?.Estimate ?? 0),
-            nettMarginPercent: Number(t.NettMargin?.Estimate ?? 0),
-        },
+        totals: totalsFrom(raw),
         sections,
         fingerprint: fingerprint({ raw, detailed }),
     };

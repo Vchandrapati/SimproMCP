@@ -147,7 +147,7 @@ test("applying takes the lock before each write and treats the dropped lock as n
     const result = await apply(fake, planToken);
     assert.equal(result.status, "complete");
     const writes = fake.calls.filter((call) => !call.startsWith("GET"));
-    assert.deepEqual(writes.map((call) => call.split(" ")[0]), ["POST", "PATCH", "DELETE", "POST", "PATCH", "DELETE"]);
+    assert.deepEqual(writes.map((call) => call.split(" ")[0]), ["POST", "PATCH", "POST", "PATCH"]);
     assert.equal(fake.state.lines.catalogs[0].Total.Qty, 5);
     assert.equal(fake.state.lines.oneOffs[0].Total.Qty, 0);
     assert.equal(fake.state.lines.oneOffs[0].EstimatedCost, 100, "remove keeps the cost");
@@ -282,4 +282,18 @@ test("mapLimit keeps input order and caps concurrency", async () => {
     });
     assert.deepEqual(out, [50, 10, 30, 20, 40]);
     assert.equal(peak, 2);
+});
+
+test("a failed write releases the lock, and apply reads only the totals afterwards", async () => {
+    const fake = fakeSimpro(standard());
+    const { planToken } = await plan(fake, [{ op: "update_line", lineType: "catalogs", lineId: 1, qty: 5 }]);
+    // Send the PATCH to a line that doesn't exist, so the write fails after the lock is taken.
+    const patch = fake.client.patch.bind(fake.client);
+    fake.client.patch = (path: string, body: unknown) => patch(path.replace(/\/\d+$/, "/999"), body);
+    fake.calls.length = 0;
+    const result = await apply(fake, planToken);
+    assert.equal(result.status, "stopped_error");
+    const writes = fake.calls.filter((call) => !call.startsWith("GET")).map((call) => call.split(" ")[0]);
+    assert.deepEqual(writes, ["POST", "PATCH", "DELETE"]);
+    assert.equal(fake.calls.at(-1), `GET quotes/${Q}`, "only the quote header is read afterwards");
 });
