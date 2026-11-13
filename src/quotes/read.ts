@@ -156,25 +156,75 @@ export function linePath(quoteId: number, sectionId: number, costCentreId: numbe
     return lineId === undefined ? base : `${base}${lineId}`;
 }
 
+/** Fields each line list must return. Confirmed against live Simpro to match the per-line detail. */
+const LINE_COLUMNS: Record<LineType, string> = {
+    catalogs: "ID,Catalog,BasePrice,Markup,SellPrice,Total,DisplayOrder",
+    prebuilds: "ID,Prebuild,BasePrice,Markup,SellPrice,Total,DisplayOrder",
+    oneOffs: "ID,Description,PartNo,EstimatedCost,Markup,SellPrice,Total,DisplayOrder",
+    labor: "ID,LaborType,LaborRate,LaborMarkup,SellPrice,Total",
+    serviceFees: "ID,ServiceFee,BasePrice,Markup,SellPrice,Total,DisplayOrder",
+};
+const CENTRE_COLUMNS = "ID,Name,CostCenter,ItemsLocked,Total";
+
+/** Requests in flight at once while reading. The client still caps the rate. */
+const READ_CONCURRENCY = 6;
+
+/** Runs work over items with limited concurrency, keeping results in input order. */
+export async function mapLimit<T, R>(items: T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
+    const results = new Array<R>(items.length);
+    let next = 0;
+    const worker = async () => {
+        while (next < items.length) {
+            const index = next++;
+            results[index] = await work(items[index]);
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return results;
+}
+
 /**
  * Reads a quote with full line detail. display=all leaves out one-off costs, display
- * order and cost centre types, so every cost centre and line is fetched individually.
+ * order and cost centre types, so cost centres are read per section and lines per cost
+ * centre and type, using list endpoints with explicit columns.
  */
 export async function readQuote(client: SimproClient, quoteId: number): Promise<QuoteView> {
     const raw = await client.get<Raw>(`quotes/${quoteId}`, { display: "all" });
+    const rawSections = (raw.Sections ?? []) as Raw[];
+
+    const centreLists = await mapLimit(rawSections, READ_CONCURRENCY, (rawSection) =>
+        client.getAll<Raw>(`quotes/${quoteId}/sections/${rawSection.ID}/costCenters/`, { columns: CENTRE_COLUMNS }));
+
+    type Job = { sectionId: number; centreId: number; lineType: LineType; ids: number[] };
+    const jobs: Job[] = [];
+    for (const rawSection of rawSections) {
+        for (const rawCentre of (rawSection.CostCenters ?? []) as Raw[]) {
+            for (const [key, lineType] of Object.entries(ITEM_KEYS)) {
+                const ids = ((rawCentre.Items?.[key] ?? []) as Raw[]).map((item) => Number(item.ID));
+                if (ids.length > 0) jobs.push({ sectionId: rawSection.ID, centreId: rawCentre.ID, lineType, ids });
+            }
+        }
+    }
+    const rows = await mapLimit(jobs, READ_CONCURRENCY, async (job) => {
+        const listed = await client.getAll<Raw>(linePath(quoteId, job.sectionId, job.centreId, job.lineType), { columns: LINE_COLUMNS[job.lineType] });
+        const byId = new Map(listed.map((row) => [Number(row.ID), row]));
+        // Keep the overview's order, and read any line the list missed on its own.
+        return Promise.all(job.ids.map((id) => byId.get(id) ?? client.get<Raw>(linePath(quoteId, job.sectionId, job.centreId, job.lineType, id))));
+    });
+    const linesFor = new Map(jobs.map((job, index) => [`${job.centreId}:${job.lineType}`, rows[index]]));
+
     const sections: Section[] = [];
     const detailed: unknown[] = [];
-
-    for (const rawSection of (raw.Sections ?? []) as Raw[]) {
+    rawSections.forEach((rawSection, sectionIndex) => {
+        const centreDetail = new Map(centreLists[sectionIndex].map((row) => [Number(row.ID), row]));
         const costCentres: CostCentre[] = [];
         for (const rawCentre of (rawSection.CostCenters ?? []) as Raw[]) {
-            const centrePath = `quotes/${quoteId}/sections/${rawSection.ID}/costCenters/${rawCentre.ID}`;
-            const centre = await client.get<Raw>(centrePath);
+            const centre = centreDetail.get(Number(rawCentre.ID));
+            if (!centre) throw new Error(`Cost centre ${rawCentre.ID} is missing from section ${rawSection.ID}'s list.`);
             detailed.push({ ItemsLocked: centre.ItemsLocked, Type: centre.CostCenter, Id: centre.ID });
             const lines: Line[] = [];
-            for (const [key, lineType] of Object.entries(ITEM_KEYS)) {
-                for (const item of (rawCentre.Items?.[key] ?? []) as Raw[]) {
-                    const full = await client.get<Raw>(linePath(quoteId, rawSection.ID, rawCentre.ID, lineType, item.ID));
+            for (const lineType of Object.values(ITEM_KEYS)) {
+                for (const full of linesFor.get(`${rawCentre.ID}:${lineType}`) ?? []) {
                     detailed.push(full);
                     lines.push(normaliseLine(lineType, full));
                 }
@@ -191,7 +241,7 @@ export async function readQuote(client: SimproClient, quoteId: number): Promise<
             });
         }
         sections.push({ sectionId: Number(rawSection.ID), name: rawSection.Name ?? "", costCentres });
-    }
+    });
 
     const t = raw.Totals ?? {};
     return {

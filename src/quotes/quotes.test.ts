@@ -5,7 +5,7 @@ import { latestQtyChange, restorableQty, type LogEntry } from "./history.ts";
 import { OperationList } from "./operations.ts";
 import { marginToMarkup, PlanRefused, planQuoteChanges } from "./plan.ts";
 import { signPlan, verifyPlan } from "./planToken.ts";
-import { normaliseLine, type Line } from "./read.ts";
+import { mapLimit, normaliseLine, readQuote, type Line } from "./read.ts";
 import { CC, NEW_CC, NEW_S, Q, S, SECRET, catalogueLine, fakeSimpro, feeLine, labourLine, memoryAudit, oneOffLine } from "./testing.ts";
 
 const standard = () => ({
@@ -260,4 +260,26 @@ test("apply refuses a quote whose status moved on after planning", async () => {
     fake.state.status = "Quote: Sent to Client";
     await assert.rejects(apply(fake, planned.planToken), /Sent to Client/);
     assert.ok(!fake.calls.some((call) => call.startsWith("PATCH")));
+});
+
+test("reading a quote lists lines per cost centre instead of fetching each line", async () => {
+    const fake = fakeSimpro(standard());
+    const quote = await readQuote(fake.client, Q);
+    assert.equal(quote.sections[0].costCentres[0].lines.length, 4);
+    assert.ok(!fake.calls.some((call) => /\/costCenters\/\d+\/\w+\/\d+$/.test(call)), "no per-line GETs");
+    assert.ok(!fake.calls.some((call) => /\/costCenters\/\d+$/.test(call)), "no per-cost-centre GETs");
+});
+
+test("mapLimit keeps input order and caps concurrency", async () => {
+    let running = 0;
+    let peak = 0;
+    const out = await mapLimit([5, 1, 3, 2, 4], 2, async (n) => {
+        running++;
+        peak = Math.max(peak, running);
+        await new Promise((done) => setTimeout(done, n));
+        running--;
+        return n * 10;
+    });
+    assert.deepEqual(out, [50, 10, 30, 20, 40]);
+    assert.equal(peak, 2);
 });

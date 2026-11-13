@@ -162,6 +162,10 @@ export function fakeSimpro(lines: Record<string, Raw[]>): Fake {
             state.costCentres.push(made);
             return reply(201, made);
         }
+        if (centres && method === "GET") {
+            const rows = state.costCentres.filter((candidate) => candidate.SectionID === Number(centres[1])).map((found) => ({ ...found, Total: { ExTax: 0 } }));
+            return reply(200, rows, { "result-pages": "1" });
+        }
         const centre = path.match(new RegExp(`^quotes/${Q}/sections/(\\d+)/costCenters/(\\d+)$`));
         if (centre) {
             const found = state.costCentres.find((candidate) => candidate.ID === Number(centre[2]));
@@ -186,6 +190,7 @@ export function fakeSimpro(lines: Record<string, Raw[]>): Fake {
                 list.push(made);
                 return reply(201, made);
             }
+            if (method === "GET" && Number.isNaN(id)) return reply(200, list, { "result-pages": "1" });
             const line = list.find((candidate) => candidate.ID === id);
             if (!line) return reply(404, { errors: [{ message: "not found" }] });
             if (method === "GET") return reply(200, line);

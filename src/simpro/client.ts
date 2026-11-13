@@ -46,6 +46,7 @@ export class SimproClient {
     private readonly maxPerSecond: number;
     private readonly sleep: (ms: number) => Promise<void>;
     private recent: number[] = [];
+    private gate: Promise<void> = Promise.resolve();
 
     constructor(
         connection: SimproConnection,
@@ -59,7 +60,14 @@ export class SimproClient {
         this.sleep = sleep;
     }
 
-    private async throttle() {
+    /** Callers queue here one at a time, so concurrent requests still respect the cap. */
+    private throttle(): Promise<void> {
+        const turn = this.gate.then(() => this.waitForSlot());
+        this.gate = turn.catch(() => undefined);
+        return turn;
+    }
+
+    private async waitForSlot() {
         const now = Date.now();
         this.recent = this.recent.filter((at) => now - at < 1000);
         if (this.recent.length >= this.maxPerSecond) {
