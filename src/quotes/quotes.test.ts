@@ -124,6 +124,9 @@ test("plans refuse quotes that aren't in progress, unknown lines and archived ty
     const complete = fakeSimpro(standard());
     complete.state.stage = "Complete";
     await assert.rejects(plan(complete, [{ op: "remove_line", lineType: "catalogs", lineId: 1 }]), /stage Complete/);
+    const sent = fakeSimpro(standard());
+    sent.state.status = "Quote: Sent to Client";
+    await assert.rejects(plan(sent, [{ op: "remove_line", lineType: "catalogs", lineId: 1 }]), /Sent to Client/);
     const fake = fakeSimpro(standard());
     await assert.rejects(plan(fake, [{ op: "remove_line", lineType: "catalogs", lineId: 999 }]), /isn't on quote/);
     await assert.rejects(plan(fake, [{ op: "set_cost_centre_type", costCentreId: CC, typeId: 99 }]), /archived/);
@@ -249,4 +252,12 @@ test("plan tokens reject tampering, the wrong secret and expiry", () => {
 
 test("the section constant matches the fake's existing cost centre", () => {
     assert.equal(fakeSimpro({}).state.costCentres[0].SectionID, S);
+});
+
+test("apply refuses a quote whose status moved on after planning", async () => {
+    const fake = fakeSimpro(standard());
+    const planned = await plan(fake, [{ op: "update_line", lineType: "catalogs", lineId: 1, qty: 5 }]);
+    fake.state.status = "Quote: Sent to Client";
+    await assert.rejects(apply(fake, planned.planToken), /Sent to Client/);
+    assert.ok(!fake.calls.some((call) => call.startsWith("PATCH")));
 });

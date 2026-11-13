@@ -27,6 +27,7 @@ An MCP server that lets an AI client read and edit Simpro quotes. It doesn't cha
 
 - **Endpoint allowlist:** Simpro tokens can't be limited, so [`allowlist.ts`](src/simpro/allowlist.ts) is the real permission boundary. Real deletes, `PUT` and catalogue writes are blocked before anything is sent.
 - **Plan, then apply:** a plan is a signed token that expires after 15 minutes and only works for the person who made it.
+- **Only quotes being built can be edited:** a quote must have the status `Quote: To Be Completed`, be at stage `InProgress`, be open and have no job. Quotes that are sent, in follow up, won or closed are refused at both plan and apply.
 - **Stale plans are refused:** apply stops without writing if the quote's content changed after planning.
 - **Locking:** the lock is taken before each write, because each write drops it, and it's held only for that write.
 - **Checked writes:** each write is read back. If someone opens the quote or the result differs from the plan, apply stops and reports what was written.

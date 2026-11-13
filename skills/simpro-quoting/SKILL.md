@@ -121,7 +121,7 @@ Don't add a discount unless asked.
 
 Say so plainly rather than working around these:
 
-- Create a quote, or change one that isn't in progress, is closed, or has become a job. A quote with the status "Sent to Client" can already be at stage Approved, so the tool will refuse it.
+- Create a quote, or change one whose status isn't "Quote: To Be Completed". Quotes that are sent, in follow up, won or closed are refused, as are quotes that aren't in progress or have become a job. To edit one, staff need to set it back to "To Be Completed" in Simpro first.
 - Create a section with a blank name. If a quote has no sections, ask what to call the first one.
 - Add a one-off with a $0 sell price, such as a "client supplied" note. Staff need to add those in Simpro.
 - Add a one-off with a $0 cost. Ask the user which cost to use.

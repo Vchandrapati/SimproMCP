@@ -61,6 +61,7 @@ export type Fake = {
         lines: Record<string, Raw[]>;
         logs: Raw[];
         stage: string;
+        status: string;
         name: string;
         lockedBy: string | null;
         lockedAfterWrites: number | null;
@@ -76,6 +77,7 @@ export function fakeSimpro(lines: Record<string, Raw[]>): Fake {
         lines,
         logs: [],
         stage: "InProgress",
+        status: "Quote: To Be Completed",
         name: "Test quote",
         lockedBy: null,
         lockedAfterWrites: null,
@@ -119,6 +121,7 @@ export function fakeSimpro(lines: Record<string, Raw[]>): Fake {
                 ID: Q,
                 Name: state.name,
                 Stage: state.stage,
+                Status: { ID: 1, Name: state.status },
                 IsClosed: false,
                 DateModified: new Date().toISOString(),
                 Customer: { CompanyName: "Test customer" },

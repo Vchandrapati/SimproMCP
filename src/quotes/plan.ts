@@ -372,10 +372,16 @@ function planUpdate(op: Extract<Operation, { op: "update_line" }>, context: Cont
     };
 }
 
+/** Staff are still building quotes at this status. Later statuses may already be with the customer. */
+export const EDITABLE_STATUS = "Quote: To Be Completed";
+
 export function refuseUneditable(quote: QuoteView) {
     if (quote.isClosed) throw new PlanRefused(`Quote ${quote.quoteId} is closed.`);
     if (quote.stage !== "InProgress") throw new PlanRefused(`Quote ${quote.quoteId} is at stage ${quote.stage}, and only in-progress quotes can be edited.`);
     if (quote.jobNo) throw new PlanRefused(`Quote ${quote.quoteId} has been converted to job ${quote.jobNo}.`);
+    if (quote.status !== EDITABLE_STATUS) {
+        throw new PlanRefused(`Quote ${quote.quoteId} has the status "${quote.status ?? "none"}", and only quotes at "${EDITABLE_STATUS}" can be edited.`);
+    }
 }
 
 export async function planQuoteChanges(
